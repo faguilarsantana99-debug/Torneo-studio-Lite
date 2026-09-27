@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Torneo Studio Lite 🏆</title>
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Arial,sans-serif;background:#090b12;color:#fff}
+    .wrap{max-width:900px;margin:auto;padding:20px}
+    .hero{background:linear-gradient(135deg,#171b2e,#0d1020);border:1px solid #2d3557;border-radius:22px;padding:28px;text-align:center}
+    h1{font-size:clamp(30px,7vw,58px);margin:0 0 10px}
+    h2{margin-top:30px}
+    .sub{color:#b9c0d8;font-size:17px}
+    .card{background:#121622;border:1px solid #292f45;border-radius:18px;padding:18px;margin:14px 0}
+    .nominee{display:flex;gap:14px;align-items:center;justify-content:space-between}
+    .left{display:flex;gap:14px;align-items:center}
+    .num{width:42px;height:42px;border-radius:12px;background:#252b40;display:grid;place-items:center;font-weight:bold}
+    .name{font-size:18px;font-weight:bold}
+    .votes{font-size:15px;color:#b9c0d8}
+    button{border:0;border-radius:12px;padding:12px 16px;font-weight:bold;cursor:pointer;background:#fff;color:#111}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .leader{border-color:#f1c40f}
+    .badge{display:inline-block;padding:5px 9px;border-radius:99px;background:#f1c40f;color:#111;font-size:12px;font-weight:bold;margin-left:7px}
+    .status{text-align:center;margin:15px 0;color:#b9c0d8;min-height:24px}
+    ol{padding-left:22px}
+    li{margin:8px 0}
+    .small{font-size:13px;color:#8f97b0}
+    @media(max-width:600px){.nominee{align-items:flex-start}.nominee button{padding:10px}.name{font-size:16px}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <section class="hero">
+    <h1>🏆 TORNEO STUDIO LITE 🔥</h1>
+    <p class="sub">Vota por el mejor creador de tutoriales de Studio Lite.</p>
+  </section>
+
+  <div id="status" class="status">Conectando con el sistema de votación…</div>
+
+  <h2>🗳️ Nominados</h2>
+  <div id="nominees"></div>
+
+  <h2>📊 Clasificación</h2>
+  <div class="card">
+    <ol id="ranking"><li>Cargando votos…</li></ol>
+  </div>
+
+  <div class="card">
+    <h2>📜 Reglas</h2>
+    <ul>
+      <li>Hay 10 nominados.</li>
+      <li>Cada dispositivo puede votar una vez en esta versión.</li>
+      <li>Los votos se guardan en una base de datos compartida.</li>
+      <li>La clasificación muestra los votos que tiene cada creador.</li>
+      <li>El creador con más votos al cierre del torneo gana.</li>
+    </ul>
+    <p class="small">Nota: “un voto por dispositivo” no equivale a una garantía de una persona por voto. Alguien podría borrar los datos del navegador o usar otro dispositivo.</p>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script>
+const NOMINEES = [
+  "Creador 1","Creador 2","Creador 3","Creador 4","Creador 5",
+  "Creador 6","Creador 7","Creador 8","Creador 9","Creador 10"
+];
+
+const statusEl = document.getElementById("status");
+const nomineesEl = document.getElementById("nominees");
+const rankingEl = document.getElementById("ranking");
+
+function getVoterId(){
+  let id = localStorage.getItem("studio_lite_voter_id");
+  if(!id){
+    id = crypto.randomUUID ? crypto.randomUUID() :
+      Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
+    localStorage.setItem("studio_lite_voter_id", id);
+  }
+  return id;
+}
+
+function headers(){
+  return {
+    "apikey": SUPABASE_ANON_KEY,
+    "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+    "Content-Type": "application/json"
+  };
+}
+
+async function loadVotes(){
+  const res = await fetch(SUPABASE_URL + "/rest/v1/nominee_counts?select=nominee_id,name,votes&order=votes.desc,name.asc", {
+    headers: headers()
+  });
+  if(!res.ok) throw new Error("No se pudieron cargar los votos.");
+  return await res.json();
+}
+
+function render(rows){
+  const voted = localStorage.getItem("studio_lite_has_voted") === "yes";
+  nomineesEl.innerHTML = rows.map((r,i) => `
+    <div class="card ${i===0 && r.votes>0 ? "leader" : ""}">
+      <div class="nominee">
+        <div class="left">
+          <div class="num">${i+1}</div>
+          <div>
+            <div class="name">${escapeHtml(r.name)} ${i===0 && r.votes>0 ? '<span class="badge">LÍDER</span>' : ''}</div>
+            <div class="votes">${r.votes} voto${r.votes===1?'':'s'}</div>
+          </div>
+        </div>
+        <button ${voted ? "disabled" : ""} onclick="vote(${Number(r.nominee_id)})">
+          ${voted ? "YA VOTASTE ✓" : "VOTAR 🗳️"}
+        </button>
+      </div>
+    </div>
+  `).join("");
+
+  rankingEl.innerHTML = rows.map((r,i) =>
+    `<li><strong>${escapeHtml(r.name)}</strong> — ${r.votes} voto${r.votes===1?'':'s'}</li>`
+  ).join("");
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+  }[c]));
+}
+
+async function vote(nomineeId){
+  if(localStorage.getItem("studio_lite_has_voted")==="yes") return;
+  statusEl.textContent = "Registrando tu voto…";
+  document.querySelectorAll("button").forEach(b=>b.disabled=true);
+
+  try{
+    const res = await fetch(SUPABASE_URL + "/rest/v1/rpc/cast_vote", {
+      method:"POST",
+      headers: headers(),
+      body: JSON.stringify({
+        p_nominee_id: nomineeId,
+        p_voter_id: getVoterId()
+      })
+    });
+
+    if(!res.ok){
+      const detail = await res.text();
+      throw new Error(detail);
+    }
+
+    const result = await res.json();
+
+    if(result && result.already_voted){
+      localStorage.setItem("studio_lite_has_voted","yes");
+      statusEl.textContent = "Ya existe un voto registrado desde este dispositivo.";
+    } else {
+      localStorage.setItem("studio_lite_has_voted","yes");
+      statusEl.textContent = "¡Voto registrado! 🗳️ Los demás podrán ver el nuevo conteo.";
+    }
+
+    await refresh();
+  }catch(e){
+    statusEl.textContent = "No se pudo registrar el voto. Revisa la configuración de Supabase.";
+    document.querySelectorAll("button").forEach(b=>b.disabled=false);
+    console.error(e);
+  }
+}
+
+async function refresh(){
+  try{
+    const rows = await loadVotes();
+    render(rows);
+    if(!statusEl.textContent.includes("Voto registrado") &&
+       !statusEl.textContent.includes("Ya existe")){
+      statusEl.textContent = "Votos actualizados en tiempo real. 🔥";
+    }
+  }catch(e){
+    statusEl.textContent = "No se pudo conectar con la base de datos.";
+    nomineesEl.innerHTML = '<div class="card">Configura primero <b>config.js</b> siguiendo el README.</div>';
+  }
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>
